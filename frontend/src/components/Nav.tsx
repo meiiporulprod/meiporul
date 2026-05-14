@@ -23,6 +23,7 @@ export default function Nav() {
         </Link>
         <div className="flex items-center gap-6">
           {link("/promises", "Promises")}
+          {link("/elections", "Elections")}
           {link("/fact-checks", "Fact Checks")}
           <Link
             href="/dashboard"
