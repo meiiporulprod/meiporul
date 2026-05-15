@@ -6,6 +6,7 @@ Downloads all 234 constituency PDFs and parses candidate results.
 
 Usage:
     python crawler/scrape_elections.py
+    python crawler/scrape_elections.py --only 16,17,27   # retry specific ACs
 """
 
 import os
@@ -136,100 +137,249 @@ def download_pdf(url: str) -> bytes | None:
 
 def parse_form20(pdf_bytes: bytes, constituency_num: int) -> list[dict]:
     """
-    Parse Form 20 PDF and return list of candidate dicts.
+    Parse Form 20 booth-wise PDF.
 
-    Form 20 table columns (typical):
-    S.No | Name of Candidate | Symbol | Party | EVM Votes | Postal Votes | Total | % of Votes
+    Structural variants found across TN districts:
+      A (standard): row0[0]='Serial No. Of Polling Station'; names at row1[1+]; booths at row2+
+      B (partial-rev): row0[0,1]=reversed serial/station, row0[2]='No of Valid Votes...' (normal);
+                       names at row1[2+] reversed; booths at row2+, col0=slno, col1=ps_no
+      C (full-rev-names): row0[0,1]=reversed serial; row0[2+]=candidate names reversed;
+                          row1[2+]=party names reversed; booths at row2+
+      D (two-row hdr): row0[0]='', row1[0]='Slno'; row1[2+]=names reversed; booths at row3+
+      E (shifted-D):   row0[0]='', row1[0]='', row2[0]='Slno'; names at row1[2+]; booths at row4+
+      F (title-rows):  4+ FORM-20 title rows before structural header row
     """
-    candidates = []
+    METADATA = {
+        "total", "nota", "rejected", "tendered", "valid", "votes",
+        "station", "polling", "elector", "booth", "serial", "contest", "number",
+    }
+
+    def to_int(val) -> int:
+        s = re.sub(r"\s+", "", str(val or "0")).replace(",", "")
+        return int(float(s)) if re.match(r"^\d+(\.\d+)?$", s) else 0
+
+    def fix_cell(val) -> str:
+        return " ".join(str(val or "").split()).strip()
+
+    def rev_cell(val) -> str:
+        return fix_cell(str(val or "")[::-1])
+
+    def is_header(text: str) -> bool:
+        t = text.lower()
+        t_ns = t.replace(" ", "")  # space-stripped — catches spaced-letter PDFs ("T ot al")
+        return (len(t) < 2
+                or any(kw in t for kw in METADATA)
+                or any(kw in t[::-1] for kw in METADATA)
+                or any(kw in t_ns for kw in METADATA)
+                or any(kw in t_ns[::-1] for kw in METADATA)
+                # catch truncated reversed headers: 'lato'→rev→'otal' is suffix of 'total'
+                or (len(t_ns) >= 3 and any(kw.endswith(t_ns) for kw in METADATA))
+                or (len(t_ns) >= 3 and any(kw.endswith(t_ns[::-1]) for kw in METADATA)))
+
+    def reversed_serial(cell_raw: str) -> bool:
+        # Detect reversed structural identifiers: 'Sl.No.', 'Serial No.', 'Table Serial No.'
+        # Two checks: compact (strip all whitespace — handles '.ON.LS') and
+        # normalized (preserve word boundaries — handles 'Table Serial No.').
+        raw = str(cell_raw or "")
+
+        # Check 1: compact — handles '.ON\n.LS' → stripped '.ON.LS' → rev 'SL.NO.'
+        stripped = re.sub(r"\s+", "", raw)
+        rev_stripped = stripped[::-1].lower()
+        if re.search(r"\bsl\.?no\b", rev_stripped):
+            return not re.search(r"\bsl\.?no\b", stripped.lower())
+
+        # Check 2: normalized — handles 'Table Serial No.' reversed where word
+        # boundaries are only visible when whitespace is preserved
+        normalized = fix_cell(raw)
+        rev_normalized = normalized[::-1].lower()
+        if re.search(r"\bserial\s*\.?\s*no\b", rev_normalized):
+            return not re.search(r"\bserial\s*\.?\s*no\b", normalized.lower())
+
+        return False
+
+    def _extract_names_reversed(name_row, start_col: int) -> list[tuple[int, str]]:
+        cols = []
+        for i in range(start_col, len(name_row)):
+            name = rev_cell(name_row[i])
+            if name and not is_header(name):
+                cols.append((i, name))
+        return cols
+
+    # Track candidate columns as (col_index, name) so vote indexing is always exact
+    cand_cols: list[tuple[int, str]] = []
+    col_votes: dict[int, int] = {}
+    found = False
+
+    def accumulate(table_rows, skip_rows: int):
+        for row in table_rows[skip_rows:]:
+            if not row:
+                continue
+            cell0 = str(row[0] or "").strip()
+            if not cell0.isdigit():
+                continue
+            # Skip column-index rows: row[0]='1', row[1]='2', row[2]='3', ...
+            if (len(row) > 1
+                    and str(row[1] or "").strip().isdigit()
+                    and int(str(row[1] or "0").strip()) == int(cell0) + 1):
+                continue
+            for ci, _ in cand_cols:
+                if ci < len(row):
+                    col_votes[ci] += to_int(row[ci])
+
+    def _try_register(cols: list[tuple[int, str]]) -> bool:
+        nonlocal found
+        if cols:
+            cand_cols.extend(cols)
+            for ci, _ in cols:
+                col_votes[ci] = 0
+            found = True
+            return True
+        return False
 
     try:
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             for page in pdf.pages:
-                tables = page.extract_tables()
-                for table in tables:
-                    if not table or len(table) < 2:
+                for table in page.extract_tables():
+                    if not table or len(table) < 3:
                         continue
 
-                    # Identify header row
-                    header = [str(c or "").lower().strip() for c in table[0]]
-                    header_text = " ".join(header)
+                    r0l = [str(c or "").lower().strip() for c in table[0]]
+                    r1l = [str(c or "").lower().strip() for c in table[1]] if len(table) > 1 else []
+                    r2l = [str(c or "").lower().strip() for c in table[2]] if len(table) > 2 else []
 
-                    # Must look like a results table
-                    if not any(kw in header_text for kw in
-                               ["candidate", "votes", "party", "total"]):
-                        continue
+                    if not found:
+                        first0 = r0l[0] if r0l else ""
+                        first1 = r1l[0] if r1l else ""
+                        first2 = r2l[0] if r2l else ""
 
-                    # Map column indices
-                    name_idx   = next((i for i, h in enumerate(header) if "candidate" in h or "name" in h), 1)
-                    party_idx  = next((i for i, h in enumerate(header) if "party" in h), 3)
-                    evm_idx    = next((i for i, h in enumerate(header) if "evm" in h or ("votes" in h and "postal" not in h)), 4)
-                    post_idx   = next((i for i, h in enumerate(header) if "postal" in h), 5)
-                    total_idx  = next((i for i, h in enumerate(header) if "total" in h), 6)
-                    share_idx  = next((i for i, h in enumerate(header) if "%" in h or "share" in h or "percent" in h), -1)
-
-                    for row in table[1:]:
-                        if not row or len(row) < 3:
+                        # --- Type E (shifted-D): row0='', row1='', row2='Slno' ---
+                        if (not first0
+                                and not first1
+                                and len(r2l) > 2
+                                and first2 in ("slno", "sl no", "sl.no", "s.no")
+                                and len(table) > 3):
+                            cols = _extract_names_reversed(table[1], 2)
+                            if _try_register(cols):
+                                accumulate(table, 4)
                             continue
 
-                        # Skip header repeats, totals, NOTA rows
-                        first = str(row[0] or "").strip().lower()
-                        if first in ("s.no", "sl no", "sno", "", "total") or not first.isdigit():
-                            if any(kw in str(row).lower() for kw in ["nota", "none of the above", "total valid", "rejected"]):
-                                continue
-                            if not first.isdigit():
-                                continue
+                        # --- Type D: row0='', row1[0]='Slno' ---
+                        if (not first0
+                                and len(r1l) > 2
+                                and first1 in ("slno", "sl no", "sl.no", "s.no")
+                                and ("polling" in r1l[1] or "station" in r1l[1]
+                                     or "name" in r1l[1] or "booth" in r1l[1])):
+                            cols = _extract_names_reversed(table[1], 2)
+                            if _try_register(cols):
+                                accumulate(table, 3)
+                            continue
 
-                        def clean_num(val) -> int:
-                            s = str(val or "0").replace(",", "").replace(" ", "").strip()
-                            return int(float(s)) if re.match(r"^\d+(\.\d+)?$", s) else 0
+                        # --- Type D-rev: row0='', row1[0]=reversed structural id ---
+                        if (not first0
+                                and len(table) > 1
+                                and reversed_serial(table[1][0] if table[1] else "")):
+                            cols = _extract_names_reversed(table[1], 2)
+                            if _try_register(cols):
+                                accumulate(table, 2)
+                            continue
 
-                        def clean_float(val) -> float | None:
-                            s = str(val or "").replace(",", "").replace("%", "").strip()
-                            try:
-                                return round(float(s), 2)
-                            except ValueError:
-                                return None
+                        # --- Type B or C (reversed serial in row0[0]) ---
+                        if reversed_serial(table[0][0] if table[0] else ""):
+                            # Try same row first (Type C, or struct-header-with-names in col4+)
+                            cols = _extract_names_reversed(table[0], 2)
+                            if not cols and len(table) > 1:
+                                # Fall back to next row (Type B)
+                                cols = _extract_names_reversed(table[1], 2)
+                            if _try_register(cols):
+                                accumulate(table, 2)
+                            continue
 
-                        name  = str(row[name_idx] or "").strip()
-                        party = str(row[party_idx] or "IND").strip() or "IND"
+                        # --- Type A (standard, forward) ---
+                        if any("serial" in h or "polling" in h or "station" in h for h in r0l):
+                            total_col = next(
+                                (i for i, h in enumerate(r0l) if "total" in h and i > 2), -1
+                            )
+                            end = total_col if total_col > 0 else len(table[1])
+                            cols = []
+                            for i in range(1, end):
+                                name = fix_cell(table[1][i])
+                                if name and not is_header(name):
+                                    cols.append((i, name))
+                            if _try_register(cols):
+                                accumulate(table, 2)
+                            continue
 
-                        evm_votes    = clean_num(row[evm_idx])    if evm_idx < len(row)   else 0
-                        postal_votes = clean_num(row[post_idx])   if post_idx < len(row)  else 0
-                        total_votes  = clean_num(row[total_idx])  if total_idx < len(row) else evm_votes + postal_votes
-                        vote_share   = clean_float(row[share_idx]) if share_idx >= 0 and share_idx < len(row) else None
+                        # --- Type F (title rows before structural header) ---
+                        # Scan rows 1-9 for one that looks like the structural header row
+                        for ri in range(1, min(10, len(table))):
+                            rXl = [str(c or "").lower().strip() for c in table[ri]]
+                            rX0 = rXl[0] if rXl else ""
+                            if reversed_serial(table[ri][0] if table[ri] else ""):
+                                # Try same row first: candidates may be in col4+ of the
+                                # structural header row (col2/col3 filtered by is_header)
+                                name_row = ri
+                                cols = _extract_names_reversed(table[ri], 2)
+                                if not cols and ri + 1 < len(table):
+                                    cols = _extract_names_reversed(table[ri + 1], 2)
+                                    name_row = ri + 1
+                                if _try_register(cols):
+                                    accumulate(table, name_row + 1)
+                                break
+                            elif (rX0 in ("slno", "sl no", "sl.no", "s.no")
+                                    and len(rXl) > 2
+                                    and ("polling" in rXl[1] or "station" in rXl[1]
+                                         or "name" in rXl[1] or "booth" in rXl[1])):
+                                cols = _extract_names_reversed(table[ri], 2)
+                                if _try_register(cols):
+                                    accumulate(table, ri + 2)
+                                break
+                            elif ri + 1 < len(table):
+                                # Split structural header: cell col0 spans two rows (AC030 style)
+                                c0_top = re.sub(r"\s+", "", str(table[ri][0] or ""))
+                                c0_bot = re.sub(r"\s+", "", str(table[ri + 1][0] or ""))
+                                # AC164 style: ri+1 col0 empty — try ri+2 for completion
+                                if not c0_bot and ri + 2 < len(table):
+                                    c0_bot = re.sub(r"\s+", "", str(table[ri + 2][0] or ""))
+                                if (len(c0_top) <= 4 and not c0_top.isdigit()
+                                        and re.search(r"\b(sl|serial)\.?no",
+                                                      (c0_top + c0_bot)[::-1].lower())):
+                                    cols = _extract_names_reversed(table[ri], 2)
+                                    if not cols and ri + 1 < len(table):
+                                        cols = _extract_names_reversed(table[ri + 1], 2)
+                                    if _try_register(cols):
+                                        accumulate(table, ri + 2)
+                                        break  # only break on successful registration
 
-                        if name and total_votes > 0:
-                            candidates.append({
-                                "candidate_name": name,
-                                "party":          party,
-                                "evm_votes":      evm_votes,
-                                "postal_votes":   postal_votes,
-                                "total_votes":    total_votes,
-                                "vote_share":     vote_share,
-                            })
-
-                    if candidates:
-                        break  # found results table, skip rest of tables on this page
-
-            if candidates:
-                break  # found results, skip remaining pages
+                    else:
+                        # Subsequent pages: accumulate booth rows only
+                        accumulate(table, 0)
 
     except Exception as e:
         log.error(f"  PDF parse error [{constituency_num}]: {e}")
         return []
 
-    if not candidates:
+    if not cand_cols or all(v == 0 for v in col_votes.values()):
         return []
 
-    # Sort by votes, assign rank, compute vote_share if missing
+    candidates = [
+        {
+            "candidate_name": name,
+            "party":          "IND",
+            "evm_votes":      col_votes[ci],
+            "postal_votes":   0,
+            "total_votes":    col_votes[ci],
+            "vote_share":     None,
+        }
+        for ci, name in cand_cols
+        if col_votes[ci] > 0
+    ]
+
     candidates.sort(key=lambda c: c["total_votes"], reverse=True)
-    total = sum(c["total_votes"] for c in candidates)
+    grand_total = sum(c["total_votes"] for c in candidates)
     for i, c in enumerate(candidates):
-        c["rank"]      = i + 1
-        c["is_winner"] = (i == 0)
-        if c["vote_share"] is None and total > 0:
-            c["vote_share"] = round((c["total_votes"] / total) * 100, 2)
+        c["rank"]       = i + 1
+        c["is_winner"]  = (i == 0)
+        c["vote_share"] = round((c["total_votes"] / grand_total) * 100, 2) if grand_total > 0 else 0.0
 
     return candidates
 
@@ -248,10 +398,17 @@ def upsert_constituency(info: dict) -> str:
 
 
 def upsert_results(constituency_id: str, candidates: list):
-    rows = [
-        {"constituency_id": constituency_id, "election_year": 2026, **c}
-        for c in candidates
-    ]
+    # Disambiguate duplicate candidate names (possible when two candidates share a name)
+    name_count: dict[str, int] = {}
+    rows = []
+    for c in candidates:
+        raw = c["candidate_name"]
+        if raw in name_count:
+            name_count[raw] += 1
+            c = {**c, "candidate_name": f"{raw} ({name_count[raw]})"}
+        else:
+            name_count[raw] = 1
+        rows.append({"constituency_id": constituency_id, "election_year": 2026, **c})
     supabase.table("election_results").upsert(
         rows,
         on_conflict="constituency_id,election_year,candidate_name",
@@ -259,6 +416,11 @@ def upsert_results(constituency_id: str, candidates: list):
 
 
 def main():
+    only: set[int] = set()
+    if "--only" in sys.argv:
+        idx = sys.argv.index("--only")
+        only = {int(n) for n in sys.argv[idx + 1].split(",")}
+
     pdf_links = get_pdf_links()
 
     if not pdf_links:
@@ -268,6 +430,8 @@ def main():
     success, failed = 0, []
 
     for info in sorted(pdf_links, key=lambda x: x["number"]):
+        if only and info["number"] not in only:
+            continue
         num = info["number"]
         log.info(f"[{num:3d}/234] {info['name']} ({info['district']})")
 
@@ -300,7 +464,8 @@ def main():
 
         time.sleep(0.3)
 
-    log.info(f"\nComplete — {success}/234 constituencies imported.")
+    total = len(only) if only else 234
+    log.info(f"\nComplete — {success}/{total} constituencies imported.")
     if failed:
         log.warning(f"Failed: {failed}")
         log.info("Re-run to retry — upsert is safe to repeat.")
