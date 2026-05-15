@@ -60,8 +60,7 @@ export default async function ElectionsPage() {
     seatCount[abbr].seats++;
   }
   const topParties = Object.entries(seatCount)
-    .sort((a, b) => b[1].seats - a[1].seats)
-    .slice(0, 6);
+    .sort((a, b) => b[1].seats - a[1].seats);
 
   return (
     <>
