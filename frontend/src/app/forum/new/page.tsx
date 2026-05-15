@@ -69,9 +69,9 @@ function NewPostForm() {
       return;
     }
 
-    // Trigger AI fact-check in the background for fake_news
+    // Await fact-check so it completes before navigation (avoids cancelled fetch)
     if (tab === "fake_news") {
-      fetch("/api/forum/fact-check", {
+      await fetch("/api/forum/fact-check", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ post_id: post.id, claim: `${title}\n\n${content}` }),

@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import Nav from "@/components/Nav";
 import { notFound } from "next/navigation";
 import ReportButton from "./ReportButton";
+import RetryFactCheck from "./RetryFactCheck";
 
 export const revalidate = 0;
 
@@ -131,7 +132,16 @@ export default async function ForumPostPage({
             {!post.ai_verdict && (
               <div className="text-center py-10 text-slate-500 border border-slate-800 rounded-xl">
                 <p className="text-sm">AI fact-check in progress…</p>
-                <p className="text-xs mt-1">Refresh in a few seconds</p>
+                <p className="text-xs mt-2">
+                  {user ? (
+                    <RetryFactCheck
+                      postId={post.id}
+                      claim={`${post.title}\n\n${post.content}`}
+                    />
+                  ) : (
+                    "Refresh in a few seconds"
+                  )}
+                </p>
               </div>
             )}
           </>

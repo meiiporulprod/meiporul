@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_MODEL = "llama-3.1-8b-instant";
@@ -12,8 +13,11 @@ export async function POST(req: NextRequest) {
   const { post_id, claim } = await req.json();
   if (!post_id || !claim) return NextResponse.json({ error: "Missing fields" }, { status: 400 });
 
+  // Use service role to bypass RLS for AI-written fields
+  const svc = createServiceClient();
+
   if (!GROQ_API_KEY) {
-    await supabase.from("forum_posts").update({
+    await svc.from("forum_posts").update({
       ai_verdict: "Fact-check unavailable — GROQ_API_KEY not configured.",
       ai_verdict_label: "unverified",
       status: "ai_checked",
@@ -70,7 +74,7 @@ Respond with exactly this JSON structure:
     const validVerdicts = ["true", "false", "misleading", "unverified", "satire"];
     if (!validVerdicts.includes(parsed.verdict)) parsed.verdict = "unverified";
 
-    await supabase.from("forum_posts").update({
+    await svc.from("forum_posts").update({
       ai_verdict: parsed.neutral_analysis,
       ai_verdict_label: parsed.verdict,
       ai_party_response: parsed.party_response,
@@ -80,7 +84,7 @@ Respond with exactly this JSON structure:
     return NextResponse.json({ ok: true, ...parsed });
   } catch (err) {
     console.error("Fact-check error:", err);
-    await supabase.from("forum_posts").update({
+    await svc.from("forum_posts").update({
       ai_verdict: "Automated fact-check could not be completed at this time.",
       ai_verdict_label: "unverified",
       status: "ai_checked",
