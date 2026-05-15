@@ -1,9 +1,10 @@
 -- Forum: public profiles
 create table if not exists public.profiles (
   id         uuid primary key references auth.users(id) on delete cascade,
-  username   text unique not null,
   created_at timestamptz default now() not null
 );
+-- Add username if the table already existed without it
+alter table public.profiles add column if not exists username text;
 
 -- Auto-create profile row on sign-up
 create or replace function public.handle_new_user()
@@ -11,7 +12,7 @@ returns trigger language plpgsql security definer set search_path = public as $$
 begin
   insert into public.profiles(id, username)
   values (new.id, split_part(new.email, '@', 1))
-  on conflict do nothing;
+  on conflict (id) do update set username = excluded.username where public.profiles.username is null;
   return new;
 end;
 $$;
@@ -67,15 +68,23 @@ alter table public.forum_posts   enable row level security;
 alter table public.forum_actions enable row level security;
 
 -- profiles: anyone can read; users manage their own
+drop policy if exists "public profiles readable" on public.profiles;
+drop policy if exists "users insert own profile" on public.profiles;
+drop policy if exists "users update own profile" on public.profiles;
 create policy "public profiles readable"  on public.profiles for select using (true);
 create policy "users insert own profile"  on public.profiles for insert with check (auth.uid() = id);
 create policy "users update own profile"  on public.profiles for update using (auth.uid() = id);
 
 -- forum_posts: anyone can read; auth users can insert; only service role updates (AI/admin)
+drop policy if exists "posts readable by all" on public.forum_posts;
+drop policy if exists "auth users can post"   on public.forum_posts;
 create policy "posts readable by all"     on public.forum_posts for select using (true);
 create policy "auth users can post"       on public.forum_posts for insert with check (auth.uid() = user_id);
 
 -- forum_actions: auth users manage their own
+drop policy if exists "actions readable by all"  on public.forum_actions;
+drop policy if exists "auth users can act"       on public.forum_actions;
+drop policy if exists "users delete own actions" on public.forum_actions;
 create policy "actions readable by all"   on public.forum_actions for select using (true);
 create policy "auth users can act"        on public.forum_actions for insert with check (auth.uid() = user_id);
 create policy "users delete own actions"  on public.forum_actions for delete using (auth.uid() = user_id);
