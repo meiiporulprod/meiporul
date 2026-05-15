@@ -208,7 +208,23 @@ def parse_form20(pdf_bytes: bytes, constituency_num: int) -> list[dict]:
     # Track candidate columns as (col_index, name) so vote indexing is always exact
     cand_cols: list[tuple[int, str]] = []
     col_votes: dict[int, int] = {}
+    col_parties: dict[int, str] = {}
     found = False
+
+    _PARTY_SKIP = {"nota", "total", "grand", "valid", "votes", "rejected", "tendered", "number"}
+
+    def _register_parties(party_row, col_indices: list[int], reverse: bool = True) -> None:
+        for ci in col_indices:
+            if ci >= len(party_row):
+                continue
+            raw = str(party_row[ci] or "").strip()
+            name = rev_cell(raw) if reverse else fix_cell(raw)
+            if not name or len(name) < 2 or name.isdigit():
+                continue
+            nl = name.lower().replace(" ", "")
+            if any(kw in nl for kw in _PARTY_SKIP):
+                continue
+            col_parties[ci] = name
 
     def accumulate(table_rows, skip_rows: int):
         for row in table_rows[skip_rows:]:
@@ -260,6 +276,9 @@ def parse_form20(pdf_bytes: bytes, constituency_num: int) -> list[dict]:
                                 and len(table) > 3):
                             cols = _extract_names_reversed(table[1], 2)
                             if _try_register(cols):
+                                ci_list = [ci for ci, _ in cols]
+                                if len(table) > 3:
+                                    _register_parties(table[3], ci_list)
                                 accumulate(table, 4)
                             continue
 
@@ -271,6 +290,9 @@ def parse_form20(pdf_bytes: bytes, constituency_num: int) -> list[dict]:
                                      or "name" in r1l[1] or "booth" in r1l[1])):
                             cols = _extract_names_reversed(table[1], 2)
                             if _try_register(cols):
+                                ci_list = [ci for ci, _ in cols]
+                                if len(table) > 2:
+                                    _register_parties(table[2], ci_list)
                                 accumulate(table, 3)
                             continue
 
@@ -280,18 +302,30 @@ def parse_form20(pdf_bytes: bytes, constituency_num: int) -> list[dict]:
                                 and reversed_serial(table[1][0] if table[1] else "")):
                             cols = _extract_names_reversed(table[1], 2)
                             if _try_register(cols):
+                                ci_list = [ci for ci, _ in cols]
+                                if len(table) > 2:
+                                    _register_parties(table[2], ci_list)
                                 accumulate(table, 2)
                             continue
 
                         # --- Type B or C (reversed serial in row0[0]) ---
                         if reversed_serial(table[0][0] if table[0] else ""):
-                            # Try same row first (Type C, or struct-header-with-names in col4+)
+                            # Try same row first (Type C: names in row0, parties in row1)
                             cols = _extract_names_reversed(table[0], 2)
-                            if not cols and len(table) > 1:
-                                # Fall back to next row (Type B)
+                            if cols:
+                                if _try_register(cols):
+                                    ci_list = [ci for ci, _ in cols]
+                                    if len(table) > 1:
+                                        _register_parties(table[1], ci_list)
+                                    accumulate(table, 2)
+                            elif len(table) > 1:
+                                # Type B: names in row1, parties in row2
                                 cols = _extract_names_reversed(table[1], 2)
-                            if _try_register(cols):
-                                accumulate(table, 2)
+                                if _try_register(cols):
+                                    ci_list = [ci for ci, _ in cols]
+                                    if len(table) > 2:
+                                        _register_parties(table[2], ci_list)
+                                    accumulate(table, 2)
                             continue
 
                         # --- Type A (standard, forward) ---
@@ -306,6 +340,10 @@ def parse_form20(pdf_bytes: bytes, constituency_num: int) -> list[dict]:
                                 if name and not is_header(name):
                                     cols.append((i, name))
                             if _try_register(cols):
+                                ci_list = [ci for ci, _ in cols]
+                                # Parties typically in row2 (before booth data)
+                                if len(table) > 2:
+                                    _register_parties(table[2], ci_list, reverse=False)
                                 accumulate(table, 2)
                             continue
 
@@ -323,6 +361,10 @@ def parse_form20(pdf_bytes: bytes, constituency_num: int) -> list[dict]:
                                     cols = _extract_names_reversed(table[ri + 1], 2)
                                     name_row = ri + 1
                                 if _try_register(cols):
+                                    ci_list = [ci for ci, _ in cols]
+                                    party_ri = name_row + 1
+                                    if party_ri < len(table):
+                                        _register_parties(table[party_ri], ci_list)
                                     accumulate(table, name_row + 1)
                                 break
                             elif (rX0 in ("slno", "sl no", "sl.no", "s.no")
@@ -331,6 +373,9 @@ def parse_form20(pdf_bytes: bytes, constituency_num: int) -> list[dict]:
                                          or "name" in rXl[1] or "booth" in rXl[1])):
                                 cols = _extract_names_reversed(table[ri], 2)
                                 if _try_register(cols):
+                                    ci_list = [ci for ci, _ in cols]
+                                    if ri + 2 < len(table):
+                                        _register_parties(table[ri + 2], ci_list)
                                     accumulate(table, ri + 2)
                                 break
                             elif ri + 1 < len(table):
@@ -347,6 +392,9 @@ def parse_form20(pdf_bytes: bytes, constituency_num: int) -> list[dict]:
                                     if not cols and ri + 1 < len(table):
                                         cols = _extract_names_reversed(table[ri + 1], 2)
                                     if _try_register(cols):
+                                        ci_list = [ci for ci, _ in cols]
+                                        if ri + 2 < len(table):
+                                            _register_parties(table[ri + 2], ci_list)
                                         accumulate(table, ri + 2)
                                         break  # only break on successful registration
 
@@ -364,7 +412,7 @@ def parse_form20(pdf_bytes: bytes, constituency_num: int) -> list[dict]:
     candidates = [
         {
             "candidate_name": name,
-            "party":          "IND",
+            "party":          col_parties.get(ci, "IND"),
             "evm_votes":      col_votes[ci],
             "postal_votes":   0,
             "total_votes":    col_votes[ci],

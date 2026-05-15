@@ -5,25 +5,27 @@ import { notFound } from "next/navigation";
 
 export const revalidate = 3600;
 
-const PARTY_COLORS: Record<string, string> = {
-  TVK:      "#E8411B",
-  DMK:      "#E80000",
-  AIADMK:   "#006400",
-  BJP:      "#FF9933",
-  INC:      "#19AAED",
-  "CPI(M)": "#CC0000",
-  CPI:      "#CC2200",
-  VCK:      "#0000CD",
-  DMDK:     "#8B0000",
-  PMK:      "#FF6600",
-  IND:      "#6B7280",
-};
+const PARTY_MAP: { match: string[]; color: string }[] = [
+  { match: ["TVK", "TAMILAGA VETTRI", "VETTRI KAZHAGAM"],   color: "#E8411B" },
+  { match: ["DMK", "DRAVIDA MUNNETRA"],                      color: "#E80000" },
+  { match: ["AIADMK", "ANNA DRAVIDA"],                       color: "#006400" },
+  { match: ["BJP", "BHARATIYA JANATA"],                      color: "#FF9933" },
+  { match: ["INC", "INDIAN NATIONAL CONGRESS", "CONGRESS"],  color: "#19AAED" },
+  { match: ["CPI(M)", "COMMUNIST PARTY.*MARXIST"],           color: "#CC0000" },
+  { match: ["CPI", "COMMUNIST PARTY"],                       color: "#CC2200" },
+  { match: ["VCK", "VIDUTHALAI CHIRUTHAIGAL"],               color: "#0000CD" },
+  { match: ["DMDK", "DESIYA MURPOKKU"],                      color: "#8B0000" },
+  { match: ["PMK", "PATTALI MAKKAL"],                        color: "#FF6600" },
+  { match: ["NTK", "NAM TAMILAR"],                           color: "#FF4500" },
+  { match: ["MDMK", "MARUMALARCHI"],                         color: "#800080" },
+];
 
 function partyColor(party: string): string {
-  for (const [key, color] of Object.entries(PARTY_COLORS)) {
-    if (party.toUpperCase().includes(key)) return color;
+  const u = party.toUpperCase();
+  for (const p of PARTY_MAP) {
+    if (p.match.some((m) => u.includes(m))) return p.color;
   }
-  return PARTY_COLORS.IND;
+  return "#6B7280";
 }
 
 export default async function ConstituencyDetailPage({
