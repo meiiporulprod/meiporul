@@ -8,8 +8,8 @@ export const revalidate = 3600;
 // ORDER MATTERS: longer/more-specific keys must come before substrings they contain.
 // e.g. AIADMK before DMK (AIADMK contains "DMK"), CPI(M) before CPI.
 const PARTY_MAP: { match: string[]; abbr: string; color: string }[] = [
-  { match: ["TVK", "TAMILAGA VETTRI", "VETTRI KAZHAGAM"],   abbr: "TVK",    color: "#E8411B" },
-  { match: ["AIADMK", "ANNA DRAVIDA"],                       abbr: "AIADMK", color: "#006400" },
+  { match: ["TVK", "TAMILAGA VETTRI", "TAMILAGA KAZHAGAM", "VETTRI KAZHAGAM"], abbr: "TVK",    color: "#E8411B" },
+  { match: ["AIADMK", "ANNA DRAVIDA", "MUNNETRA ANNA"],      abbr: "AIADMK", color: "#006400" },
   { match: ["DMK", "DRAVIDA MUNNETRA"],                      abbr: "DMK",    color: "#E80000" },
   { match: ["BJP", "BHARATIYA JANATA"],                      abbr: "BJP",    color: "#FF9933" },
   { match: ["INC", "INDIAN NATIONAL CONGRESS", "CONGRESS"],  abbr: "INC",    color: "#19AAED" },
@@ -21,6 +21,7 @@ const PARTY_MAP: { match: string[]; abbr: string; color: string }[] = [
   { match: ["NTK", "NAM TAMILAR"],                           abbr: "NTK",    color: "#FF4500" },
   { match: ["MDMK", "MARUMALARCHI"],                         abbr: "MDMK",   color: "#800080" },
   { match: ["IUML", "INDIAN UNION MUSLIM"],                  abbr: "IUML",   color: "#009900" },
+  { match: ["AMMK", "AMMA MAKKAL"],                          abbr: "AMMK",   color: "#9B1B30" },
 ];
 
 function resolveParty(party: string): { abbr: string; color: string } {

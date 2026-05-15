@@ -6,8 +6,8 @@ import { notFound } from "next/navigation";
 export const revalidate = 3600;
 
 const PARTY_MAP: { match: string[]; color: string }[] = [
-  { match: ["TVK", "TAMILAGA VETTRI", "VETTRI KAZHAGAM"],   color: "#E8411B" },
-  { match: ["AIADMK", "ANNA DRAVIDA"],                       color: "#006400" },
+  { match: ["TVK", "TAMILAGA VETTRI", "TAMILAGA KAZHAGAM", "VETTRI KAZHAGAM"], color: "#E8411B" },
+  { match: ["AIADMK", "ANNA DRAVIDA", "MUNNETRA ANNA"],      color: "#006400" },
   { match: ["DMK", "DRAVIDA MUNNETRA"],                      color: "#E80000" },
   { match: ["BJP", "BHARATIYA JANATA"],                      color: "#FF9933" },
   { match: ["INC", "INDIAN NATIONAL CONGRESS", "CONGRESS"],  color: "#19AAED" },
@@ -19,6 +19,7 @@ const PARTY_MAP: { match: string[]; color: string }[] = [
   { match: ["NTK", "NAM TAMILAR"],                           color: "#FF4500" },
   { match: ["MDMK", "MARUMALARCHI"],                         color: "#800080" },
   { match: ["IUML", "INDIAN UNION MUSLIM"],                  color: "#009900" },
+  { match: ["AMMK", "AMMA MAKKAL"],                          color: "#9B1B30" },
 ];
 
 function partyColor(party: string): string {
