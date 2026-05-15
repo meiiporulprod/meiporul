@@ -4,21 +4,23 @@ import Link from "next/link";
 
 export const revalidate = 3600;
 
-// Maps full names and abbreviations → canonical abbreviation + color
+// Maps full names and abbreviations → canonical abbreviation + color.
+// ORDER MATTERS: longer/more-specific keys must come before substrings they contain.
+// e.g. AIADMK before DMK (AIADMK contains "DMK"), CPI(M) before CPI.
 const PARTY_MAP: { match: string[]; abbr: string; color: string }[] = [
   { match: ["TVK", "TAMILAGA VETTRI", "VETTRI KAZHAGAM"],   abbr: "TVK",    color: "#E8411B" },
-  { match: ["DMK", "DRAVIDA MUNNETRA"],                      abbr: "DMK",    color: "#E80000" },
   { match: ["AIADMK", "ANNA DRAVIDA"],                       abbr: "AIADMK", color: "#006400" },
+  { match: ["DMK", "DRAVIDA MUNNETRA"],                      abbr: "DMK",    color: "#E80000" },
   { match: ["BJP", "BHARATIYA JANATA"],                      abbr: "BJP",    color: "#FF9933" },
   { match: ["INC", "INDIAN NATIONAL CONGRESS", "CONGRESS"],  abbr: "INC",    color: "#19AAED" },
-  { match: ["CPI(M)", "COMMUNIST PARTY.*MARXIST"],           abbr: "CPI(M)", color: "#CC0000" },
-  { match: ["CPI", "COMMUNIST PARTY"],                       abbr: "CPI",    color: "#CC2200" },
+  { match: ["CPI(M)", "MARXIST"],                            abbr: "CPI(M)", color: "#CC0000" },
+  { match: ["CPI", "COMMUNIST PARTY OF INDIA"],              abbr: "CPI",    color: "#CC2200" },
   { match: ["VCK", "VIDUTHALAI CHIRUTHAIGAL"],               abbr: "VCK",    color: "#0000CD" },
   { match: ["DMDK", "DESIYA MURPOKKU"],                      abbr: "DMDK",   color: "#8B0000" },
   { match: ["PMK", "PATTALI MAKKAL"],                        abbr: "PMK",    color: "#FF6600" },
   { match: ["NTK", "NAM TAMILAR"],                           abbr: "NTK",    color: "#FF4500" },
   { match: ["MDMK", "MARUMALARCHI"],                         abbr: "MDMK",   color: "#800080" },
-  { match: ["TVK"],                                          abbr: "TVK",    color: "#E8411B" },
+  { match: ["IUML", "INDIAN UNION MUSLIM"],                  abbr: "IUML",   color: "#009900" },
 ];
 
 function resolveParty(party: string): { abbr: string; color: string } {

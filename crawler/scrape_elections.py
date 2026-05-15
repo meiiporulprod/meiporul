@@ -208,6 +208,7 @@ def parse_form20(pdf_bytes: bytes, constituency_num: int) -> list[dict]:
     # Track candidate columns as (col_index, name) so vote indexing is always exact
     cand_cols: list[tuple[int, str]] = []
     col_votes: dict[int, int] = {}
+    col_postal: dict[int, int] = {}
     col_parties: dict[int, str] = {}
     found = False
 
@@ -226,11 +227,26 @@ def parse_form20(pdf_bytes: bytes, constituency_num: int) -> list[dict]:
                 continue
             col_parties[ci] = name
 
+    _POSTAL_KEYWORDS = {"postal", "latsop", "latsop", "latosp"}
+
+    def _is_postal_row(row) -> bool:
+        for cell in row[:3]:
+            t = re.sub(r"\s+", "", str(cell or "")).lower()
+            if any(kw in t for kw in _POSTAL_KEYWORDS) or any(kw in t[::-1] for kw in _POSTAL_KEYWORDS):
+                return True
+        return False
+
     def accumulate(table_rows, skip_rows: int):
         for row in table_rows[skip_rows:]:
             if not row:
                 continue
             cell0 = str(row[0] or "").strip()
+            # Capture postal ballot row
+            if not cell0.isdigit() and _is_postal_row(row):
+                for ci, _ in cand_cols:
+                    if ci < len(row):
+                        col_postal[ci] = col_postal.get(ci, 0) + to_int(row[ci])
+                continue
             if not cell0.isdigit():
                 continue
             # Skip column-index rows: row[0]='1', row[1]='2', row[2]='3', ...
@@ -414,8 +430,8 @@ def parse_form20(pdf_bytes: bytes, constituency_num: int) -> list[dict]:
             "candidate_name": name,
             "party":          col_parties.get(ci, "IND"),
             "evm_votes":      col_votes[ci],
-            "postal_votes":   0,
-            "total_votes":    col_votes[ci],
+            "postal_votes":   col_postal.get(ci, 0),
+            "total_votes":    col_votes[ci] + col_postal.get(ci, 0),
             "vote_share":     None,
         }
         for ci, name in cand_cols
