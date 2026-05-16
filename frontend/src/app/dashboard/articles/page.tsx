@@ -7,7 +7,7 @@ export default async function ArticlesPage() {
   const supabase = await createClient();
   const { data: articles } = await supabase
     .from("news_articles")
-    .select("id, title, source_name, is_relevant, relevance_score, tags, status, published_at, source_url")
+    .select("id, title, source_name, is_relevant, relevance_score, tags, status, published_at, source_url, crawled_at")
     .order("crawled_at", { ascending: false })
     .limit(100);
 
