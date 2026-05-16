@@ -19,6 +19,11 @@ jobs:
       - name: Install dependencies
         run: pip install requests beautifulsoup4 feedparser supabase python-dotenv
 
+      - name: Check secrets
+        run: |
+          echo "SUPABASE_URL set: $([ -n '${{ secrets.SUPABASE_URL }}' ] && echo YES || echo NO)"
+          echo "SERVICE_KEY set: $([ -n '${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}' ] && echo YES || echo NO)"
+
       - name: Run crawler
         working-directory: crawler
         env:
