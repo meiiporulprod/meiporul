@@ -25,16 +25,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "GROQ_API_KEY not set" }, { status: 503 });
   }
 
-  const systemPrompt = `You are a fact-checker specializing in Tamil Nadu politics.
+  const systemPrompt = `You are a fact-checker specializing in Tamil Nadu politics and misinformation.
+Your job is to identify the specific false claim being spread and verify whether it is true or false.
 Always respond with ONLY a valid JSON object — no markdown, no explanation outside the JSON.`;
 
-  const userPrompt = `Fact-check this claim: "${claim}"
+  const userPrompt = `A user has reported the following as fake news circulating on social media:
+
+"""
+${claim}
+"""
+
+Instructions:
+1. Identify the specific factual claim being spread (ignore who is spreading it — focus on what they are claiming).
+2. Fact-check that underlying claim against known facts about Tamil Nadu politics.
+3. Verdict must reflect whether the CLAIM BEING SPREAD is true or false — not whether the reporter is correct to flag it.
+   - "false" = the claim being spread is demonstrably false
+   - "misleading" = the claim has some basis but is distorted or missing key context
+   - "true" = the claim is actually factually accurate
+   - "unverified" = cannot be confirmed or denied with available information
+   - "satire" = the content is clearly satirical
 
 Respond with exactly this JSON structure:
 {
   "verdict": "true" | "false" | "misleading" | "unverified" | "satire",
-  "neutral_analysis": "2-4 sentences of objective analysis citing verifiable facts",
-  "party_response": "2-3 sentences starting with 'DMK/TVK would argue that...' from their known position"
+  "neutral_analysis": "2-4 sentences: state the specific claim being made, then explain what the facts actually show",
+  "party_response": "2-3 sentences starting with 'DMK/TVK would argue that...' reflecting their known public position"
 }`;
 
   try {
