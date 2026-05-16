@@ -1,11 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
-import Link from "next/link";
 
 export const revalidate = 0;
 
 export default async function ArticlesPage() {
   const supabase = await createClient();
-  let { data: articles } = await supabase
+  const { data: articles } = await supabase
     .from("news_articles")
     .select("id, title, source_name, is_relevant, relevance_score, tags, status, published_at, source_url, crawled_at")
     .order("crawled_at", { ascending: false })
