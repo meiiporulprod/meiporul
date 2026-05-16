@@ -3,7 +3,7 @@ import Nav from "@/components/Nav";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-export const revalidate = 3600;
+export const revalidate = 0;
 
 const PARTY_MAP: { match: string[]; color: string }[] = [
   { match: ["TVK", "TAMILAGA VETTRI", "TAMILAGA KAZHAGAM", "VETTRI KAZHAGAM"], color: "#E8411B" },

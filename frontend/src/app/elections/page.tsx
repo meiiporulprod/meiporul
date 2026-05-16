@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import Nav from "@/components/Nav";
 import Link from "next/link";
 
-export const revalidate = 3600;
+export const revalidate = 0;
 
 // Maps full names and abbreviations → canonical abbreviation + color.
 // ORDER MATTERS: longer/more-specific keys must come before substrings they contain.
