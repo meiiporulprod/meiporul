@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 
+export const revalidate = 0;
+
 const STATUS_COLORS: Record<string, string> = {
   pending:     "bg-orange-900/40 text-orange-300",
   in_progress: "bg-blue-900/40 text-blue-300",
