@@ -73,7 +73,7 @@ export default async function ConstituencyDetailPage({
       <main className="max-w-3xl mx-auto px-4 py-10">
 
         {/* Back + nav */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-6">
           <Link href="/elections" className="text-sm text-slate-400 hover:text-white transition-colors">
             ← All constituencies
           </Link>
@@ -89,6 +89,19 @@ export default async function ConstituencyDetailPage({
               </Link>
             )}
           </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-2 mb-8 border-b border-slate-800 pb-px">
+          <span className="px-3 py-1.5 text-sm font-medium text-white border-b-2 border-white -mb-px">
+            Results
+          </span>
+          <Link
+            href={`/elections/${num}/booths`}
+            className="px-3 py-1.5 text-sm text-slate-500 hover:text-slate-200 transition-colors"
+          >
+            Booth Data
+          </Link>
         </div>
 
         {/* Constituency header */}
