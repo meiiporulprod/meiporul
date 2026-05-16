@@ -1,21 +1,27 @@
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
-// force rebuild
 
 export const revalidate = 0;
 
 export default async function ArticlesPage() {
   const supabase = await createClient();
-  const { data: articles } = await supabase
+  const { data: articles, error } = await supabase
     .from("news_articles")
     .select("id, title, source_name, is_relevant, relevance_score, tags, status, published_at, source_url, crawled_at")
     .order("crawled_at", { ascending: false })
     .limit(100);
 
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "NOT SET";
+
   return (
     <div>
       <h1 className="text-2xl font-bold mb-2">Articles</h1>
-      <p className="text-slate-400 text-sm mb-8">All crawled articles from news sources.</p>
+      <p className="text-slate-400 text-sm mb-4">All crawled articles from news sources.</p>
+      <div className="text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-lg p-3 mb-6 font-mono">
+        <div>SUPABASE_URL: {url.slice(0, 40)}</div>
+        <div>rows returned: {articles?.length ?? 0}</div>
+        <div>error: {error ? JSON.stringify(error) : "none"}</div>
+      </div>
 
       <div className="space-y-2">
         {(articles ?? []).map((a) => (
