@@ -41,25 +41,22 @@ export default async function ConstituencyDetailPage({
 
   const supabase = await createClient();
 
-  const [{ data: constituency }, { data: candidates }] = await Promise.all([
-    supabase
-      .from("election_constituencies")
-      .select("*")
-      .eq("number", num)
-      .single(),
-    supabase
-      .from("election_results")
-      .select("*")
-      .eq("election_year", 2026)
-      .order("rank"),
-  ]);
+  const { data: constituency } = await supabase
+    .from("election_constituencies")
+    .select("*")
+    .eq("number", num)
+    .single();
 
   if (!constituency) notFound();
 
-  // Filter candidates for this constituency
-  const myResults = (candidates ?? []).filter(
-    (c) => c.constituency_id === constituency.id
-  );
+  const { data: candidates } = await supabase
+    .from("election_results")
+    .select("*")
+    .eq("constituency_id", constituency.id)
+    .eq("election_year", 2026)
+    .order("rank");
+
+  const myResults = candidates ?? [];
 
   const winner    = myResults[0];
   const runnerUp  = myResults[1];
