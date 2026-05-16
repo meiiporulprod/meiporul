@@ -25,19 +25,3 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: python crawl.py
-
-      - name: Install Ollama
-        run: curl -fsSL https://ollama.com/install.sh | sh
-
-      - name: Pull model
-        run: ollama pull gemma3
-
-      - name: Run AI pipeline
-        working-directory: pipeline
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          AI_MODEL: gemma3
-          USE_CLAUDE: "false"
-          PIPELINE_BATCH_SIZE: "20"
-        run: python process.py
