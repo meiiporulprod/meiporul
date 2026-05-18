@@ -16,5 +16,6 @@ export default async function PromisesPage() {
     .order("impact_level", { ascending: false })
     .limit(200);
 
-  return <PromiseTracker promises={(promises ?? []) as PromiseRecord[]} />;
+  const data = promises ?? [];
+  return <PromiseTracker promises={data as PromiseRecord[]} />;
 }
