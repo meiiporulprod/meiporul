@@ -1,5 +1,4 @@
 import { createClient } from "@/lib/supabase/server";
-import Nav from "@/components/Nav";
 import { notFound } from "next/navigation";
 import ReportButton from "./ReportButton";
 import RetryFactCheck from "./RetryFactCheck";
@@ -62,7 +61,6 @@ export default async function ForumPostPage({
 
   return (
     <>
-      <Nav />
       <main className="max-w-2xl mx-auto px-4 py-10">
         <a href="/forum" className="text-sm text-slate-400 hover:text-white transition-colors mb-8 block">
           ← Back to forum
