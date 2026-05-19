@@ -40,28 +40,80 @@ REDDIT_HEADERS = {
 
 # ── Party / relevance detection ──────────────────────────────────────────────
 
+# Party keywords + leader names — post must match at least one to be stored.
+# Adding a leader here automatically makes all subreddits capture posts about them.
 PARTY_KEYWORDS: dict[str, list[str]] = {
-    "TVK":    ["tvk", "tamilaga vettri", "vijay", "actor vijay", "thalapathy"],
-    "DMK":    ["dmk", "dravida munnetra", "stalin", "mk stalin", "kanimozhi", "udhayanidhi"],
-    "AIADMK": ["aiadmk", "anna dravida", "edappadi", "eps", "palaniswami", "jayalalitha"],
-    "BJP":    ["bjp", "bharatiya janata", "annamalai", "tamilisai"],
-    "NTK":    ["ntk", "naam tamilar", "seeman"],
-    "PMK":    ["pmk", "pattali makkal", "anbumani", "ramadoss"],
-    "INC":    ["congress", "national congress", "karti chidambaram"],
-    "VCK":    ["vck", "viduthalai chiruthaigal", "thirumavalavan"],
-    "DMDK":   ["dmdk", "desiya murpokku", "vijayakanth", "premalatha"],
-    "MDMK":   ["mdmk", "marumalarchi", "vaiko"],
+    "TVK": [
+        "tvk", "tamilaga vettri", "tamilaga kazhagam",
+        "vijay", "actor vijay", "thalapathy", "joseph vijay",
+    ],
+    "DMK": [
+        "dmk", "dravida munnetra kazhagam",
+        "mk stalin", "m.k. stalin", "stalin",
+        "udhayanidhi", "udhayanidhi stalin",
+        "kanimozhi", "tr baalu", "t.r. baalu",
+        "a raja", "dayanidhi maran", "duraimurugan",
+    ],
+    "AIADMK": [
+        "aiadmk", "anna dravida munnetra kazhagam", "admk",
+        "edappadi", "eps", "palaniswami", "e.p.s",
+        "o panneerselvam", "ops", "o.p.s",
+        "jayalalitha", "jayalalithaa", "amma",
+    ],
+    "BJP": [
+        "bjp", "bharatiya janata party",
+        "annamalai", "k. annamalai",
+        "tamilisai", "tamilisai soundararajan",
+        "l murugan", "murugan",
+        "narendran",
+    ],
+    "NTK": [
+        "ntk", "naam tamilar katchi", "naam tamilar",
+        "seeman", "seeman ntk",
+    ],
+    "PMK": [
+        "pmk", "pattali makkal katchi",
+        "anbumani", "anbumani ramadoss",
+        "ramadoss", "gk mani", "g.k. mani",
+        "dr ramadoss",
+    ],
+    "VCK": [
+        "vck", "viduthalai chiruthaigal katchi",
+        "thirumavalavan", "thol thirumavalavan",
+    ],
+    "INC": [
+        "congress", "indian national congress", "inc",
+        "karti chidambaram", "karti",
+        "p chidambaram", "chidambaram",
+        "rahul gandhi",                # national leader but often TN context
+    ],
+    "DMDK": [
+        "dmdk", "desiya murpokku dravida kazhagam",
+        "vijayakanth", "captain vijayakanth",
+        "premalatha", "premalatha vijayakanth",
+    ],
+    "MDMK": [
+        "mdmk", "marumalarchi dravida munnetra kazhagam",
+        "vaiko",
+    ],
+    "CPI(M)": [
+        "cpi m", "cpi(m)", "communist party",
+        "tk rangarajan", "t.k. rangarajan",
+    ],
+    "IUML": [
+        "iuml", "indian union muslim league",
+        "navaz kani", "k.m. kader mohideen",
+    ],
 }
 
-TN_KEYWORDS = [
-    "tamil nadu", "tamilnadu", "tn election", "tn govt", "tn government",
-    "tn politics", "2026 election", "tnla", "tamil government",
-    "chennai", "coimbatore", "madurai", "tiruchirappalli", "trichy",
-    "tirunelveli", "salem", "erode", "tiruppur", "vellore", "tanjavur",
+# General political terms — catch election/governance news not tied to one party
+POLITICAL_TERMS = [
+    "tn election", "tn govt", "tn government", "tn politics",
+    "2026 election", "tnla 2026", "tamilnadu election",
+    "tamil nadu election", "tamil nadu government", "tamil nadu politics",
+    "assembly election", "vidhan sabha", "election commission",
+    "manifesto", "vote share", "constituency",
 ]
-
-# Subreddits where ALL posts are stored (not just TN-relevant ones)
-TN_NATIVE_SUBS = {"tamilnadu", "tvkfails", "chennaicity"}
 
 
 def detect_parties(text: str) -> list[str]:
@@ -69,11 +121,10 @@ def detect_parties(text: str) -> list[str]:
     return sorted({p for p, kws in PARTY_KEYWORDS.items() if any(kw in t for kw in kws)})
 
 
-def is_tn_relevant(subreddit: str, text: str) -> bool:
-    if subreddit.lower() in TN_NATIVE_SUBS:
-        return True
+def is_political(text: str) -> bool:
+    """Return True only if the post mentions a TN party, leader, or political term."""
     t = text.lower()
-    return bool(detect_parties(t)) or any(kw in t for kw in TN_KEYWORDS)
+    return bool(detect_parties(t)) or any(term in t for term in POLITICAL_TERMS)
 
 
 def get_sentiment(text: str) -> tuple[float, str]:
@@ -153,7 +204,7 @@ def process_post(raw: dict, subreddit: str) -> dict | None:
             "party_mentions":  detect_parties(text),
             "sentiment_score": sentiment_score,
             "sentiment_label": sentiment_label,
-            "is_relevant":     is_tn_relevant(subreddit, text),
+            "is_relevant":     is_political(text),
         }
     except Exception as e:
         log.warning(f"  Post {raw.get('id', '?')} error: {e}")
@@ -212,12 +263,11 @@ def crawl(subreddits: list[str], limit: int = 100, mode: str = "new") -> None:
             raw_posts = fetch_subreddit_posts(sub_name, mode=mode, limit=limit)
             rows = [r for p in raw_posts if (r := process_post(p, sub_name))]
 
-            # For non-TN-native subs, only store TN-relevant posts
-            if sub_name.lower() not in TN_NATIVE_SUBS:
-                rows = [r for r in rows if r["is_relevant"]]
+            # Filter ALL subreddits to political content only
+            rows = [r for r in rows if r["is_relevant"]]
 
             if not rows:
-                log.info(f"  r/{sub_name}: 0 relevant posts")
+                log.info(f"  r/{sub_name}: 0 political posts")
                 time.sleep(2)
                 continue
 
@@ -226,8 +276,7 @@ def crawl(subreddits: list[str], limit: int = 100, mode: str = "new") -> None:
                     rows[i:i + 100], on_conflict="post_id"
                 ).execute()
 
-            relevant = sum(1 for r in rows if r["is_relevant"])
-            log.info(f"  r/{sub_name}: {len(rows)} upserted ({relevant} relevant)")
+            log.info(f"  r/{sub_name}: {len(rows)} political posts upserted")
             total += len(rows)
             time.sleep(2)   # ~60 req/min limit for unauthenticated requests
 
