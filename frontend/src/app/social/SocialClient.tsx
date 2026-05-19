@@ -295,11 +295,8 @@ export default function SocialClient({
           </p>
 
           {twitterPosts.length === 0 ? (
-            <div className="text-center py-20 text-slate-500 space-y-2">
-              <p>No tweets yet.</p>
-              <p className="text-xs">
-                Add TWSCRAPE_* secrets to GitHub and run the Social Monitor workflow.
-              </p>
+            <div className="text-center py-20 text-slate-500">
+              No tweets yet — check back soon.
             </div>
           ) : (
             <div className="space-y-3">
@@ -405,11 +402,8 @@ export default function SocialClient({
           </p>
 
           {instaPosts.length === 0 ? (
-            <div className="text-center py-20 text-slate-500 space-y-2">
-              <p>No Instagram posts yet.</p>
-              <p className="text-xs">
-                Run: python crawler/crawl_instagram.py --add-account @handle "Name" PARTY
-              </p>
+            <div className="text-center py-20 text-slate-500">
+              No posts yet — check back soon.
             </div>
           ) : (
             <div className="space-y-3">
