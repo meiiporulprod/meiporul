@@ -13,6 +13,10 @@ Usage:
     python crawler/crawl_reddit.py --add-sub chennai "Chennai city discussion"
     python crawler/crawl_reddit.py --remove-sub TVKFails
     python crawler/crawl_reddit.py --list-subs
+    python crawler/crawl_reddit.py --list-keywords
+    python crawler/crawl_reddit.py --list-keywords --party DMK
+    python crawler/crawl_reddit.py --add-keyword DMK "uday na"
+    python crawler/crawl_reddit.py --remove-keyword "uday na"
     python crawler/crawl_reddit.py --cleanup        # delete posts >90 days old
     python crawler/crawl_reddit.py --cleanup 30     # delete posts >30 days old
 """
@@ -40,91 +44,39 @@ REDDIT_HEADERS = {
 
 # ── Party / relevance detection ──────────────────────────────────────────────
 
-# Party keywords + leader names — post must match at least one to be stored.
-# Adding a leader here automatically makes all subreddits capture posts about them.
-PARTY_KEYWORDS: dict[str, list[str]] = {
-    "TVK": [
-        "tvk", "tamilaga vettri", "tamilaga kazhagam",
-        "vijay", "actor vijay", "thalapathy", "joseph vijay",
-    ],
-    "DMK": [
-        "dmk", "dravida munnetra kazhagam",
-        "mk stalin", "m.k. stalin", "stalin",
-        "udhayanidhi", "udhayanidhi stalin",
-        "kanimozhi", "tr baalu", "t.r. baalu",
-        "a raja", "dayanidhi maran", "duraimurugan",
-    ],
-    "AIADMK": [
-        "aiadmk", "anna dravida munnetra kazhagam", "admk",
-        "edappadi", "eps", "palaniswami", "e.p.s",
-        "o panneerselvam", "ops", "o.p.s",
-        "jayalalitha", "jayalalithaa", "amma",
-    ],
-    "BJP": [
-        "bjp", "bharatiya janata party",
-        "annamalai", "k. annamalai",
-        "tamilisai", "tamilisai soundararajan",
-        "l murugan", "murugan",
-        "narendran",
-    ],
-    "NTK": [
-        "ntk", "naam tamilar katchi", "naam tamilar",
-        "seeman", "seeman ntk",
-    ],
-    "PMK": [
-        "pmk", "pattali makkal katchi",
-        "anbumani", "anbumani ramadoss",
-        "ramadoss", "gk mani", "g.k. mani",
-        "dr ramadoss",
-    ],
-    "VCK": [
-        "vck", "viduthalai chiruthaigal katchi",
-        "thirumavalavan", "thol thirumavalavan",
-    ],
-    "INC": [
-        "congress", "indian national congress", "inc",
-        "karti chidambaram", "karti",
-        "p chidambaram", "chidambaram",
-        "rahul gandhi",                # national leader but often TN context
-    ],
-    "DMDK": [
-        "dmdk", "desiya murpokku dravida kazhagam",
-        "vijayakanth", "captain vijayakanth",
-        "premalatha", "premalatha vijayakanth",
-    ],
-    "MDMK": [
-        "mdmk", "marumalarchi dravida munnetra kazhagam",
-        "vaiko",
-    ],
-    "CPI(M)": [
-        "cpi m", "cpi(m)", "communist party",
-        "tk rangarajan", "t.k. rangarajan",
-    ],
-    "IUML": [
-        "iuml", "indian union muslim league",
-        "navaz kani", "k.m. kader mohideen",
-    ],
-}
+# Keywords are loaded from the `reddit_keywords` table in Supabase.
+# Use --list-keywords / --add-keyword / --remove-keyword to manage them.
+# These module-level vars are populated once per process by load_keywords().
+_PARTY_KEYWORDS: dict[str, list[str]] = {}
+_POLITICAL_TERMS: list[str] = []
 
-# General political terms — catch election/governance news not tied to one party
-POLITICAL_TERMS = [
-    "tn election", "tn govt", "tn government", "tn politics",
-    "2026 election", "tnla 2026", "tamilnadu election",
-    "tamil nadu election", "tamil nadu government", "tamil nadu politics",
-    "assembly election", "vidhan sabha", "election commission",
-    "manifesto", "vote share", "constituency",
-]
+
+def load_keywords() -> None:
+    """Fetch active keywords from Supabase and populate module-level dicts."""
+    global _PARTY_KEYWORDS, _POLITICAL_TERMS
+    rows = sb.table("reddit_keywords").select("party,keyword").eq("active", True).execute().data or []
+    party_map: dict[str, list[str]] = {}
+    general: list[str] = []
+    for row in rows:
+        p, kw = row["party"], row["keyword"].lower()
+        if p == "GENERAL":
+            general.append(kw)
+        else:
+            party_map.setdefault(p, []).append(kw)
+    _PARTY_KEYWORDS = party_map
+    _POLITICAL_TERMS = general
+    log.info(f"Loaded {sum(len(v) for v in party_map.values())} party keywords "
+             f"({len(party_map)} parties) + {len(general)} general terms")
 
 
 def detect_parties(text: str) -> list[str]:
     t = text.lower()
-    return sorted({p for p, kws in PARTY_KEYWORDS.items() if any(kw in t for kw in kws)})
+    return sorted({p for p, kws in _PARTY_KEYWORDS.items() if any(kw in t for kw in kws)})
 
 
 def is_political(text: str) -> bool:
-    """Return True only if the post mentions a TN party, leader, or political term."""
     t = text.lower()
-    return bool(detect_parties(t)) or any(term in t for term in POLITICAL_TERMS)
+    return bool(detect_parties(t)) or any(term in t for term in _POLITICAL_TERMS)
 
 
 def get_sentiment(text: str) -> tuple[float, str]:
@@ -253,6 +205,39 @@ def cmd_list_subs() -> None:
     print()
 
 
+# ── Keyword management ────────────────────────────────────────────────────────
+
+def cmd_list_keywords(party_filter: str | None = None) -> None:
+    q = sb.table("reddit_keywords").select("party,keyword,active,added_at").order("party").order("keyword")
+    if party_filter:
+        q = q.eq("party", party_filter.upper())
+    rows = q.execute().data or []
+    if not rows:
+        print("No keywords found.")
+        return
+    current_party = None
+    for r in rows:
+        if r["party"] != current_party:
+            current_party = r["party"]
+            print(f"\n[{current_party}]")
+        status = "" if r["active"] else "  (disabled)"
+        print(f"  {r['keyword']}{status}")
+    print()
+
+
+def cmd_add_keyword(party: str, keyword: str) -> None:
+    sb.table("reddit_keywords").upsert(
+        {"party": party.upper(), "keyword": keyword.lower(), "active": True},
+        on_conflict="party,keyword",
+    ).execute()
+    log.info(f"Added keyword '{keyword}' for {party.upper()}")
+
+
+def cmd_remove_keyword(keyword: str) -> None:
+    sb.table("reddit_keywords").update({"active": False}).eq("keyword", keyword.lower()).execute()
+    log.info(f"Disabled keyword '{keyword}'")
+
+
 # ── Main crawl ────────────────────────────────────────────────────────────────
 
 def crawl(subreddits: list[str], limit: int = 100, mode: str = "new") -> None:
@@ -291,7 +276,7 @@ def crawl(subreddits: list[str], limit: int = 100, mode: str = "new") -> None:
 def main() -> None:
     args = sys.argv[1:]
 
-    # Management commands (no Reddit credentials needed for list)
+    # Management commands (no keyword load needed)
     if "--list-subs" in args:
         cmd_list_subs()
         return
@@ -314,7 +299,24 @@ def main() -> None:
         cmd_remove_sub(args[idx + 1])
         return
 
-    # Crawl args
+    if "--list-keywords" in args:
+        party = args[args.index("--party") + 1] if "--party" in args else None
+        cmd_list_keywords(party)
+        return
+
+    if "--add-keyword" in args:
+        idx = args.index("--add-keyword")
+        cmd_add_keyword(args[idx + 1], args[idx + 2])
+        return
+
+    if "--remove-keyword" in args:
+        idx = args.index("--remove-keyword")
+        cmd_remove_keyword(args[idx + 1])
+        return
+
+    # Crawl — load keywords from DB before processing
+    load_keywords()
+
     only_sub = args[args.index("--subreddit") + 1] if "--subreddit" in args else None
     limit    = int(args[args.index("--limit") + 1])  if "--limit"    in args else 100
     mode     = args[args.index("--mode") + 1]         if "--mode"     in args else "new"
