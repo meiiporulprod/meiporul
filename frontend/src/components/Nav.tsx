@@ -26,10 +26,11 @@ export default function Nav() {
   }, [path]);
 
   const navLinks = [
-    { href: "/promises", label: "Promises" },
-    { href: "/elections", label: "Elections" },
+    { href: "/promises",    label: "Promises" },
+    { href: "/elections",   label: "Elections" },
     { href: "/fact-checks", label: "Fact Checks" },
-    { href: "/forum", label: "Forum" },
+    { href: "/forum",       label: "Forum" },
+    { href: "/social",      label: "Social" },
   ];
 
   return (

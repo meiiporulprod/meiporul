@@ -3,3 +3,6 @@ meiporul/
 node_modules/
 __pycache__/
 *.pyc
+*.png
+*.pdf
+.vercel

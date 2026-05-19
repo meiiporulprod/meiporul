@@ -401,16 +401,35 @@ def get_pdf_links() -> list[dict]:
     return links
 
 
-def download_pdf(url: str) -> bytes | None:
-    try:
-        resp = requests.get(url, headers=HEADERS, timeout=60)
-        if resp.status_code == 200:
-            return resp.content
-        log.warning(f"  HTTP {resp.status_code}: {url}")
-        return None
-    except Exception as e:
-        log.error(f"  Download error: {e}")
-        return None
+PDF_CACHE_DIR = os.path.join("crawler", "pdf")
+
+def download_pdf(url: str, ac_num: int = 0, retries: int = 3) -> bytes | None:
+    # Serve from local cache if already downloaded
+    if ac_num:
+        cached = os.path.join(PDF_CACHE_DIR, f"AC{ac_num:03d}_booths.pdf")
+        if os.path.exists(cached):
+            with open(cached, "rb") as fh:
+                data = fh.read()
+            if len(data) > 500:
+                log.info(f"  Using cached PDF: {cached}")
+                return data
+
+    for attempt in range(1, retries + 1):
+        try:
+            resp = requests.get(url, headers=HEADERS, timeout=60)
+            if resp.status_code == 200 and len(resp.content) > 500:
+                # Cache for future re-runs
+                if ac_num:
+                    os.makedirs(PDF_CACHE_DIR, exist_ok=True)
+                    with open(os.path.join(PDF_CACHE_DIR, f"AC{ac_num:03d}_booths.pdf"), "wb") as fh:
+                        fh.write(resp.content)
+                return resp.content
+            log.warning(f"  HTTP {resp.status_code} (attempt {attempt}): {url}")
+        except Exception as e:
+            log.warning(f"  Download error attempt {attempt}: {e}")
+        if attempt < retries:
+            time.sleep(3)
+    return None
 
 
 # ── DB helpers ───────────────────────────────────────────────────────────────
@@ -444,11 +463,17 @@ def upsert_booth_data(constituency_id: str, booths: list[dict], party_map: dict)
         }
         for b in booths
     ]
-    result = sb.table("election_booths").upsert(
+    sb.table("election_booths").upsert(
         booth_meta,
         on_conflict="constituency_id,election_year,booth_number",
     ).execute()
-    booth_id_map = {r["booth_number"]: r["id"] for r in (result.data or [])}
+    # Fetch IDs explicitly — upsert may omit them for rows that were updated (not inserted)
+    id_rows = sb.table("election_booths") \
+        .select("id,booth_number") \
+        .eq("constituency_id", constituency_id) \
+        .eq("election_year", 2026) \
+        .execute().data or []
+    booth_id_map = {r["booth_number"]: r["id"] for r in id_rows}
 
     # 2. Upsert booth results
     result_rows = []
@@ -482,13 +507,15 @@ def main():
     if "--only" in sys.argv:
         idx  = sys.argv.index("--only")
         only = {int(n) for n in sys.argv[idx + 1].split(",")}
+    save_failed = "--save-failed" in sys.argv
 
     pdf_links = get_pdf_links()
     if not pdf_links:
         log.error("No PDF links found. Check if site structure changed.")
         return
 
-    success, failed = 0, []
+    success = 0
+    failed: list[tuple[int, str]] = []
 
     for info in sorted(pdf_links, key=lambda x: x["number"]):
         if only and info["number"] not in only:
@@ -498,20 +525,27 @@ def main():
 
         cid = get_constituency_id(num)
         if not cid:
-            log.warning(f"  AC{num}: not found in election_constituencies, skipping")
-            failed.append(num)
+            log.warning(f"  AC{num}: not in election_constituencies -- skipping")
+            failed.append((num, "missing-cid"))
             continue
 
-        pdf_bytes = download_pdf(info["url"])
+        pdf_bytes = download_pdf(info["url"], ac_num=num)
         if not pdf_bytes:
-            failed.append(num)
+            log.warning(f"  AC{num}: download failed -- {info['url']}")
+            failed.append((num, "download"))
             time.sleep(1)
             continue
 
         booths = parse_form20_booths(pdf_bytes, num)
         if not booths:
-            log.warning(f"  AC{num}: no booth data parsed")
-            failed.append(num)
+            log.warning(f"  AC{num}: no booths parsed (unsupported PDF layout)")
+            failed.append((num, "parse"))
+            if save_failed:
+                path = os.path.join("crawler", "pdf", f"AC{num:03d}_booths.pdf")
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "wb") as fh:
+                    fh.write(pdf_bytes)
+                log.info(f"  Saved failed PDF -> {path}")
             time.sleep(1)
             continue
 
@@ -519,18 +553,26 @@ def main():
 
         try:
             count = upsert_booth_data(cid, booths, party_map)
-            log.info(f"  → {count} booths stored")
+            log.info(f"  -> {count} booths stored")
             success += 1
         except Exception as e:
-            log.error(f"  AC{num}: DB error — {e}")
-            failed.append(num)
+            log.error(f"  AC{num}: DB error -- {e}")
+            failed.append((num, f"db:{e}"))
 
         time.sleep(0.3)
 
     total = len(only) if only else 234
-    log.info(f"\nDone — {success}/{total} constituencies processed.")
+    log.info(f"\nDone -- {success}/{total} constituencies processed.")
     if failed:
-        log.warning(f"Failed: {failed}")
+        by_reason: dict[str, list[int]] = {}
+        for n, r in failed:
+            by_reason.setdefault(r.split(":")[0], []).append(n)
+        for reason, nums in sorted(by_reason.items()):
+            log.warning(f"  {reason:12s}: {nums}")
+        if save_failed:
+            parse_fails = [n for n, r in failed if r == "parse"]
+            if parse_fails:
+                log.info(f"  Failed PDFs saved to crawler/pdf/AC*_booths.pdf ({len(parse_fails)} files)")
 
 
 if __name__ == "__main__":
