@@ -121,7 +121,7 @@ export default async function SocialPage() {
           posts={(postsRes.data ?? []) as RedditPost[]}
           sources={(sourcesRes.data ?? []) as SubSource[]}
           partyTally={partyTally}
-          monitoredPosts={(monitoredRes.data ?? []) as MonitoredPost[]}
+          monitoredPosts={(monitoredRes.data ?? []) as unknown as MonitoredPost[]}
           communityNotes={(notesRes.data ?? []) as CommunityNote[]}
         />
       </main>
