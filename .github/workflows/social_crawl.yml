@@ -2,7 +2,7 @@ name: Social Crawl
 
 on:
   schedule:
-    - cron: "0 * * * *"   # every hour
+    - cron: "*/30 * * * *"   # every 30 minutes
   workflow_dispatch:        # manual trigger from GitHub Actions UI
 
 jobs:
