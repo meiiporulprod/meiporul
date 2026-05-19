@@ -1,12 +1,12 @@
-name: Social Monitor
+name: Social Crawl
 
 on:
   schedule:
-    - cron: "30 * * * *"   # every hour at :30 (offset from Reddit at :00)
-  workflow_dispatch:         # manual trigger from GitHub Actions UI
+    - cron: "0 * * * *"   # every hour
+  workflow_dispatch:        # manual trigger from GitHub Actions UI
 
 jobs:
-  monitor:
+  crawl:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,8 +17,16 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install supabase python-dotenv twscrape instaloader
+        run: pip install requests vaderSentiment supabase python-dotenv twscrape instaloader
 
+      # ── Reddit ──────────────────────────────────────────────────────────────
+      - name: Crawl Reddit
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python crawler/crawl_reddit.py --mode new --limit 100
+
+      # ── Twitter / X ─────────────────────────────────────────────────────────
       - name: Crawl Twitter/X
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -30,6 +38,7 @@ jobs:
         run: python crawler/crawl_twitter.py
         continue-on-error: true   # Instagram still runs if Twitter fails
 
+      # ── Instagram ────────────────────────────────────────────────────────────
       - name: Crawl Instagram
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
