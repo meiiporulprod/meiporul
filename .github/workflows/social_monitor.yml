@@ -1,0 +1,40 @@
+name: Social Monitor
+
+on:
+  schedule:
+    - cron: "30 * * * *"   # every hour at :30 (offset from Reddit at :00)
+  workflow_dispatch:         # manual trigger from GitHub Actions UI
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install supabase python-dotenv twscrape instaloader
+
+      - name: Crawl Twitter/X
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          TWSCRAPE_USERNAME: ${{ secrets.TWSCRAPE_USERNAME }}
+          TWSCRAPE_PASSWORD: ${{ secrets.TWSCRAPE_PASSWORD }}
+          TWSCRAPE_EMAIL: ${{ secrets.TWSCRAPE_EMAIL }}
+          TWSCRAPE_EMAIL_PASSWORD: ${{ secrets.TWSCRAPE_EMAIL_PASSWORD }}
+        run: python crawler/crawl_twitter.py
+        continue-on-error: true   # Instagram still runs if Twitter fails
+
+      - name: Crawl Instagram
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          INSTAGRAM_USERNAME: ${{ secrets.INSTAGRAM_USERNAME }}
+          INSTAGRAM_PASSWORD: ${{ secrets.INSTAGRAM_PASSWORD }}
+        run: python crawler/crawl_instagram.py
+        continue-on-error: true
